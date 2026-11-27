@@ -1,0 +1,9 @@
+{
+  "items": [
+    { "name": "Today's Top Hits", "url": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "category": "mine",    "img": "" },
+    { "name": "Rock Classics",    "url": "spotify:playlist:37i9dQZF1DWXRqgorJj26U", "category": "mine",    "img": "" },
+    { "name": "All Out 80s",      "url": "spotify:playlist:37i9dQZF1DX4UtSsGT1Sbe", "category": "mine",    "img": "" },
+    { "name": "This Is Queen",    "url": "spotify:playlist:37i9dQZF1DZ06evO2iBPiw", "category": "artists", "img": "" },
+    { "name": "Peaceful Piano",   "url": "spotify:playlist:37i9dQZF1DX4sWSpwq3LiO", "category": "other",   "img": "" }
+  ]
+}
