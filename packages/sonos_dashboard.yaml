@@ -1,0 +1,227 @@
+# =====================================================================
+# Groovy Sonos Dashboard - backend package
+# Put this file in /config/packages/ and make sure configuration.yaml has:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Then restart Home Assistant.
+# =====================================================================
+
+# ---------- Helpers ----------
+input_text:
+  spotify_current:
+    name: Spotify - current playlist
+    max: 255
+  spotify_fav_1:
+    name: Spotify favorite 1 - URI
+    max: 255
+  spotify_fav_1_name:
+    name: Spotify favorite 1 - name
+    max: 100
+  spotify_fav_2:
+    name: Spotify favorite 2 - URI
+    max: 255
+  spotify_fav_2_name:
+    name: Spotify favorite 2 - name
+    max: 100
+  spotify_fav_3:
+    name: Spotify favorite 3 - URI
+    max: 255
+  spotify_fav_3_name:
+    name: Spotify favorite 3 - name
+    max: 100
+  radio_fav_1:
+    name: Radio favorite 1 - stream
+    max: 255
+  radio_fav_1_name:
+    name: Radio favorite 1 - name
+    max: 100
+  radio_fav_2:
+    name: Radio favorite 2 - stream
+    max: 255
+  radio_fav_2_name:
+    name: Radio favorite 2 - name
+    max: 100
+  radio_fav_3:
+    name: Radio favorite 3 - stream
+    max: 255
+  radio_fav_3_name:
+    name: Radio favorite 3 - name
+    max: 100
+
+input_boolean:
+  sonos_dashboard_debug:
+    name: Sonos dashboard - debug mode
+    icon: mdi:bug
+
+# ---------- Media library + radio stations from JSON ----------
+# The JSON files live in /config/www/sonos-dashboard/ (served as /local/...).
+# If Home Assistant runs on HTTPS only, change the resource to your own URL.
+rest:
+  - resource: http://localhost:8123/local/sonos-dashboard/media_library.json
+    scan_interval: 3600
+    sensor:
+      - name: Media Library
+        unique_id: sonos_dashboard_media_library
+        icon: mdi:playlist-music
+        value_template: "{{ value_json['items'] | count }}"
+        json_attributes:
+          - items
+
+  - resource: http://localhost:8123/local/sonos-dashboard/radio_stations.json
+    scan_interval: 3600
+    sensor:
+      - name: Radio Stations
+        unique_id: sonos_dashboard_radio_stations
+        icon: mdi:radio
+        value_template: "{{ value_json['stations'] | count }}"
+        json_attributes:
+          - stations
+
+# ---------- Scripts ----------
+script:
+
+  sonos_dashboard_debug:
+    alias: Sonos dashboard - debug message
+    description: >-
+      Writes a message to the logbook when input_boolean.sonos_dashboard_debug is on.
+      Swap logbook.log for your own notify action (Telegram, mobile app, ...) if you like.
+    mode: queued
+    fields:
+      message:
+        description: Text to log
+        required: true
+        selector:
+          text:
+    sequence:
+      - if:
+          - condition: state
+            entity_id: input_boolean.sonos_dashboard_debug
+            state: "on"
+        then:
+          - action: logbook.log
+            data:
+              name: Sonos dashboard
+              message: "{{ message }}"
+
+  play_spotify:
+    alias: Play Spotify playlist
+    description: Plays a Spotify playlist (URI or share link) on a Sonos speaker.
+    icon: mdi:spotify
+    mode: restart
+    fields:
+      player:
+        description: Sonos media player
+        required: true
+        selector:
+          entity:
+            domain: media_player
+      playlist:
+        description: Spotify URI (spotify:playlist:...) or open.spotify.com link
+        required: true
+        selector:
+          text:
+      name:
+        description: Display name (only used for the debug message)
+        selector:
+          text:
+    sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: "{{ player }}"
+        data:
+          media_content_id: "{{ playlist }}"
+          media_content_type: playlist
+          enqueue: replace
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.spotify_current
+        data:
+          value: "{{ playlist }}"
+      - action: script.sonos_dashboard_debug
+        data:
+          message: "Spotify: {{ name | default(playlist, true) }} on {{ player }}"
+
+  play_radio:
+    alias: Play radio stream
+    description: Plays an internet radio stream on a Sonos speaker.
+    icon: mdi:radio
+    mode: restart
+    fields:
+      player:
+        description: Sonos media player
+        required: true
+        selector:
+          entity:
+            domain: media_player
+      stream:
+        description: Stream URL
+        required: true
+        selector:
+          text:
+    sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: "{{ player }}"
+        data:
+          media_content_id: "{{ stream }}"
+          media_content_type: music
+      - action: script.sonos_dashboard_debug
+        data:
+          message: "Radio: {{ stream }} on {{ player }}"
+
+  set_media_favorite:
+    alias: Set media favorite
+    description: >-
+      Puts a playlist or station in favorite slot 1 and shifts the others down
+      (slot 3 drops off). If it was already a favorite it moves to slot 1.
+    icon: mdi:heart
+    mode: queued
+    fields:
+      kind:
+        description: spotify or radio
+        required: true
+        selector:
+          select:
+            options:
+              - spotify
+              - radio
+      url:
+        description: Spotify URI or stream URL
+        required: true
+        selector:
+          text:
+      name:
+        description: Display name
+        required: true
+        selector:
+          text:
+    variables:
+      new_favorites: >
+        {% set ns = namespace(urls=[url], names=[name]) %}
+        {% for i in [1, 2, 3] %}
+          {% set u = states('input_text.' ~ kind ~ '_fav_' ~ i) %}
+          {% if u not in ['', 'unknown', 'unavailable', url] %}
+            {% set ns.urls = ns.urls + [u] %}
+            {% set ns.names = ns.names + [states('input_text.' ~ kind ~ '_fav_' ~ i ~ '_name')] %}
+          {% endif %}
+        {% endfor %}
+        {{ {'urls': ns.urls[:3], 'names': ns.names[:3]} }}
+    sequence:
+      - repeat:
+          for_each: [1, 2, 3]
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: "input_text.{{ kind }}_fav_{{ repeat.item }}"
+              data:
+                value: "{{ new_favorites.urls[repeat.item - 1] | default('') }}"
+            - action: input_text.set_value
+              target:
+                entity_id: "input_text.{{ kind }}_fav_{{ repeat.item }}_name"
+              data:
+                value: "{{ new_favorites.names[repeat.item - 1] | default('') }}"
+      - action: script.sonos_dashboard_debug
+        data:
+          message: "New {{ kind }} favorite: {{ name }}"

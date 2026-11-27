@@ -1,0 +1,689 @@
+# =====================================================================
+# Groovy Sonos Dashboard
+# Paste this into: Dashboard > Edit > three dots > Raw configuration editor
+#
+# Requires (HACS): button-card (v4.2+), mini-media-player, auto-entities
+# Requires backend: packages/sonos_dashboard.yaml
+#
+# >>> SET YOUR SPEAKER IN TWO PLACES: search for media_player.YOUR_SONOS <<<
+# =====================================================================
+
+button_card_templates:
+
+  # ---------- 1/2: your Sonos speaker ----------
+  sonos_player:
+    entity: media_player.YOUR_SONOS   # <-- change this
+
+  # ---------- Base for all tiles ----------
+  base_tile:
+    template: sonos_player
+    styles:
+      card:
+        - border-radius: 16px
+        - padding: 10px 12px
+        - transition: all 0.2s ease
+      name:
+        - font-size: 14px
+        - font-weight: 500
+        - white-space: normal
+        - text-align: left
+        - justify-self: start
+    extra_styles: |
+      ha-card:active {
+        transform: scale(0.96);
+        filter: brightness(1.15);
+      }
+
+  # ---------- Navigation button (between the three views) ----------
+  nav_button:
+    show_name: false
+    variables:
+      view: player
+    tap_action:
+      action: navigate
+      navigation_path: |
+        [[[ return '/' + window.location.pathname.split('/')[1] + '/' + variables.view; ]]]
+    styles:
+      card:
+        - height: 40px
+        - width: 40px
+        - padding: 4px
+        - border-radius: 10px
+        - background: |
+            [[[ return window.location.pathname.endsWith('/' + variables.view)
+                  ? 'var(--primary-color)' : 'var(--secondary-background-color)'; ]]]
+      icon:
+        - width: 18px
+        - color: |
+            [[[ return window.location.pathname.endsWith('/' + variables.view)
+                  ? 'var(--text-primary-color)' : 'var(--primary-text-color)'; ]]]
+
+  # ---------- "Now playing" title ----------
+  now_playing:
+    template: sonos_player
+    triggers_update:
+      - input_text.spotify_current
+      - sensor.radio_stations
+      - sensor.media_library
+    show_icon: false
+    show_label: true
+    tap_action:
+      action: more-info
+    name: |
+      [[[
+        if (!entity || entity.state !== 'playing') return '⏸️ Nothing playing';
+        const id = entity.attributes.media_content_id || '';
+        const bare = (u) => (u || '').replace(/^[a-z-]+:\/\//i, '');
+        const stations = states['sensor.radio_stations']?.attributes.stations || [];
+        const station = stations.find(s => s.url && id.includes(bare(s.url)));
+        if (station) return '📻 ' + station.name;
+        if (id.includes('spotify')) {
+          const lib = states['sensor.media_library']?.attributes.items || [];
+          const pl = lib.find(i => i.url === states['input_text.spotify_current']?.state);
+          return '🎵 ' + (pl ? pl.name : 'Spotify');
+        }
+        return '🎶 Music';
+      ]]]
+    label: |
+      [[[
+        if (!entity || entity.state !== 'playing') return '';
+        const a = entity.attributes;
+        return [a.media_artist, a.media_title].filter(Boolean).join(' – ');
+      ]]]
+    styles:
+      card:
+        - background: none
+        - box-shadow: none
+        - border: none
+        - padding: 8px 0 0 0
+      name:
+        - font-size: 24px
+        - font-weight: 600
+        - white-space: normal
+      label:
+        - font-size: 14px
+        - color: var(--secondary-text-color)
+        - white-space: normal
+
+  # ---------- Volume preset button ----------
+  volume_button:
+    template: base_tile
+    show_label: true
+    variables:
+      level: 0.3          # 0.0 - 1.0
+      lock_at_night: false
+      lock_from: 23       # hour the button locks
+      lock_until: 10      # hour the button unlocks
+    label: '[[[ return Math.round(variables.level * 100) + "%"; ]]]'
+    tap_action:
+      action: perform-action
+      perform_action: media_player.volume_set
+      target:
+        entity_id: '[[[ return entity.entity_id; ]]]'
+      data:
+        volume_level: '[[[ return variables.level; ]]]'
+    hold_action:
+      action: more-info
+    lock:
+      enabled: |
+        [[[
+          if (!variables.lock_at_night) return false;
+          const h = new Date().getHours();
+          return h >= variables.lock_from || h < variables.lock_until;
+        ]]]
+    styles:
+      card:
+        - height: 80px
+        - background: |
+            [[[ const v = entity?.attributes.volume_level ?? -1;
+                return Math.abs(v - variables.level) < 0.05
+                  ? 'var(--primary-color)' : 'var(--secondary-background-color)'; ]]]
+      name:
+        - justify-self: center
+        - text-align: center
+        - color: &volume_text |
+            [[[ const v = entity?.attributes.volume_level ?? -1;
+                return Math.abs(v - variables.level) < 0.05
+                  ? 'var(--text-primary-color)' : 'var(--primary-text-color)'; ]]]
+      label:
+        - font-size: 11px
+        - opacity: 0.7
+        - color: *volume_text
+      icon:
+        - width: 24px
+        - color: *volume_text
+
+  # ---------- Spotify favorite (slot 1, 2 or 3) ----------
+  spotify_favorite:
+    template: base_tile
+    show_icon: false
+    variables:
+      slot: 1
+    triggers_update:
+      - input_text.spotify_fav_1
+      - input_text.spotify_fav_2
+      - input_text.spotify_fav_3
+      - input_text.spotify_fav_1_name
+      - input_text.spotify_fav_2_name
+      - input_text.spotify_fav_3_name
+      - input_text.spotify_current
+      - sensor.media_library
+    name: |
+      [[[ return states[`input_text.spotify_fav_${variables.slot}_name`]?.state || 'Long-press a playlist'; ]]]
+    tap_action:
+      action: |
+        [[[ return states[`input_text.spotify_fav_${variables.slot}`]?.state ? 'perform-action' : 'none'; ]]]
+      perform_action: script.play_spotify
+      data:
+        player: '[[[ return entity.entity_id; ]]]'
+        playlist: '[[[ return states[`input_text.spotify_fav_${variables.slot}`].state; ]]]'
+        name: '[[[ return states[`input_text.spotify_fav_${variables.slot}_name`].state; ]]]'
+    custom_fields:
+      cover: |
+        [[[
+          const url = states[`input_text.spotify_fav_${variables.slot}`]?.state;
+          const lib = states['sensor.media_library']?.attributes.items || [];
+          const img = (lib.find(i => i.url === url) || {}).img || '';
+          const box = 'width:48px;height:48px;border-radius:8px';
+          return `<div style="position:relative;${box};background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center">
+                    <ha-icon icon="mdi:spotify" style="--mdc-icon-size:26px;color:white"></ha-icon>
+                    ${img ? `<img src="${img}" onerror="this.remove()" style="position:absolute;inset:0;${box};object-fit:cover">` : ''}
+                  </div>`;
+        ]]]
+      playing: |
+        [[[
+          if (entity?.state !== 'playing') return '';
+          if (!(entity.attributes.media_content_id || '').includes('spotify')) return '';
+          const mine = states[`input_text.spotify_fav_${variables.slot}`]?.state;
+          return mine && states['input_text.spotify_current']?.state === mine ? '🔊' : '';
+        ]]]
+    styles:
+      grid:
+        - grid-template-areas: '"cover n playing"'
+        - grid-template-columns: 48px 1fr 24px
+        - column-gap: 12px
+      card:
+        - height: 60px
+        - opacity: '[[[ return states[`input_text.spotify_fav_${variables.slot}`]?.state ? 1 : 0.5; ]]]'
+        - background: |
+            [[[ const mine = states[`input_text.spotify_fav_${variables.slot}`]?.state;
+                return mine && states['input_text.spotify_current']?.state === mine
+                  ? 'linear-gradient(135deg,#1db954,#0b3d2e)'
+                  : 'linear-gradient(135deg,#1db954,#191414)'; ]]]
+        - box-shadow: |
+            [[[ const mine = states[`input_text.spotify_fav_${variables.slot}`]?.state;
+                return entity?.state === 'playing' && mine && states['input_text.spotify_current']?.state === mine
+                  ? '0 0 15px rgba(29,185,84,0.7)' : 'none'; ]]]
+      name:
+        - color: white
+      custom_fields:
+        cover:
+          - align-self: center
+        playing:
+          - align-self: center
+
+  # ---------- Radio favorite (slot 1, 2 or 3) ----------
+  radio_favorite:
+    template: base_tile
+    show_icon: false
+    variables:
+      slot: 1
+    triggers_update:
+      - input_text.radio_fav_1
+      - input_text.radio_fav_2
+      - input_text.radio_fav_3
+      - input_text.radio_fav_1_name
+      - input_text.radio_fav_2_name
+      - input_text.radio_fav_3_name
+      - sensor.radio_stations
+    name: |
+      [[[ return states[`input_text.radio_fav_${variables.slot}_name`]?.state || 'Long-press a station'; ]]]
+    tap_action:
+      action: |
+        [[[ return states[`input_text.radio_fav_${variables.slot}`]?.state ? 'perform-action' : 'none'; ]]]
+      perform_action: script.play_radio
+      data:
+        player: '[[[ return entity.entity_id; ]]]'
+        stream: '[[[ return states[`input_text.radio_fav_${variables.slot}`].state; ]]]'
+    custom_fields:
+      logo: |
+        [[[
+          const url = states[`input_text.radio_fav_${variables.slot}`]?.state;
+          const stations = states['sensor.radio_stations']?.attributes.stations || [];
+          const logo = (stations.find(s => s.url === url) || {}).logo || '';
+          const box = 'width:40px;height:40px;border-radius:8px';
+          return `<div style="position:relative;${box};background:rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center">
+                    <ha-icon icon="mdi:radio" style="--mdc-icon-size:22px;color:white"></ha-icon>
+                    ${logo ? `<img src="${logo}" onerror="this.remove()" style="position:absolute;inset:0;${box};object-fit:contain;background:white">` : ''}
+                  </div>`;
+        ]]]
+      playing: |
+        [[[
+          const bare = (states[`input_text.radio_fav_${variables.slot}`]?.state || '').replace(/^[a-z-]+:\/\//i, '');
+          return entity?.state === 'playing' && bare && (entity.attributes.media_content_id || '').includes(bare) ? '🔊' : '';
+        ]]]
+    styles:
+      grid:
+        - grid-template-areas: '"logo n playing"'
+        - grid-template-columns: 40px 1fr 20px
+        - column-gap: 10px
+      card:
+        - height: 60px
+        - opacity: '[[[ return states[`input_text.radio_fav_${variables.slot}`]?.state ? 1 : 0.5; ]]]'
+        - background: |
+            [[[ return states[`input_text.radio_fav_${variables.slot}`]?.state
+                  ? 'linear-gradient(135deg,#ff9800,#e65100)' : 'var(--secondary-background-color)'; ]]]
+        - box-shadow: |
+            [[[ const bare = (states[`input_text.radio_fav_${variables.slot}`]?.state || '').replace(/^[a-z-]+:\/\//i, '');
+                return entity?.state === 'playing' && bare && (entity.attributes.media_content_id || '').includes(bare)
+                  ? '0 0 15px rgba(255,152,0,0.7)' : 'none'; ]]]
+      name:
+        - color: white
+      custom_fields:
+        logo:
+          - align-self: center
+        playing:
+          - align-self: center
+
+  # ---------- Playlist tile (Spotify library) ----------
+  spotify_tile:
+    template: base_tile
+    show_icon: false
+    variables:
+      url: ''
+      title: ''
+      img: ''
+    triggers_update:
+      - input_text.spotify_fav_1
+      - input_text.spotify_fav_2
+      - input_text.spotify_fav_3
+      - input_text.spotify_current
+    tap_action:
+      action: perform-action
+      perform_action: script.play_spotify
+      data:
+        player: '[[[ return entity.entity_id; ]]]'
+        playlist: '[[[ return variables.url; ]]]'
+        name: '[[[ return variables.title; ]]]'
+    hold_action:
+      action: perform-action
+      perform_action: script.set_media_favorite
+      data:
+        kind: spotify
+        url: '[[[ return variables.url; ]]]'
+        name: '[[[ return variables.title; ]]]'
+    custom_fields:
+      cover: |
+        [[[
+          const box = 'width:44px;height:44px;border-radius:6px';
+          return `<div style="position:relative;${box};background:#1db954;display:flex;align-items:center;justify-content:center">
+                    <ha-icon icon="mdi:spotify" style="--mdc-icon-size:24px;color:white"></ha-icon>
+                    ${variables.img ? `<img src="${variables.img}" onerror="this.remove()" style="position:absolute;inset:0;${box};object-fit:cover">` : ''}
+                  </div>`;
+        ]]]
+      status: |
+        [[[
+          const favs = [1, 2, 3].map(n => states[`input_text.spotify_fav_${n}`]?.state);
+          const i = favs.indexOf(variables.url);
+          const playing = entity?.state === 'playing'
+            && (entity.attributes.media_content_id || '').includes('spotify')
+            && states['input_text.spotify_current']?.state === variables.url;
+          const badge = i >= 0
+            ? `<span style="background:rgba(255,255,255,.25);border-radius:8px;padding:1px 6px;font-size:11px">♥ ${i + 1}</span>` : '';
+          return `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${badge}<span>${playing ? '🔊' : ''}</span></div>`;
+        ]]]
+    styles:
+      grid:
+        - grid-template-areas: '"cover n status"'
+        - grid-template-columns: 44px 1fr 40px
+        - column-gap: 12px
+      card:
+        - height: 64px
+        - background: |
+            [[[ return [1, 2, 3].some(n => states[`input_text.spotify_fav_${n}`]?.state === variables.url)
+                  ? 'linear-gradient(135deg,#1db954,#0b3d2e)' : 'var(--secondary-background-color)'; ]]]
+        - color: |
+            [[[ return [1, 2, 3].some(n => states[`input_text.spotify_fav_${n}`]?.state === variables.url)
+                  ? 'white' : 'var(--primary-text-color)'; ]]]
+      custom_fields:
+        cover:
+          - align-self: center
+        status:
+          - align-self: center
+
+  # ---------- Station tile (radio library) ----------
+  radio_tile:
+    template: base_tile
+    show_icon: false
+    variables:
+      url: ''
+      title: ''
+      logo: ''
+    triggers_update:
+      - input_text.radio_fav_1
+      - input_text.radio_fav_2
+      - input_text.radio_fav_3
+    tap_action:
+      action: perform-action
+      perform_action: script.play_radio
+      data:
+        player: '[[[ return entity.entity_id; ]]]'
+        stream: '[[[ return variables.url; ]]]'
+    hold_action:
+      action: perform-action
+      perform_action: script.set_media_favorite
+      data:
+        kind: radio
+        url: '[[[ return variables.url; ]]]'
+        name: '[[[ return variables.title; ]]]'
+    custom_fields:
+      logo: |
+        [[[
+          const box = 'width:44px;height:44px;border-radius:6px';
+          return `<div style="position:relative;${box};background:#ff9800;display:flex;align-items:center;justify-content:center">
+                    <ha-icon icon="mdi:radio" style="--mdc-icon-size:24px;color:white"></ha-icon>
+                    ${variables.logo ? `<img src="${variables.logo}" onerror="this.remove()" style="position:absolute;inset:0;${box};object-fit:contain;background:white">` : ''}
+                  </div>`;
+        ]]]
+      status: |
+        [[[
+          const favs = [1, 2, 3].map(n => states[`input_text.radio_fav_${n}`]?.state);
+          const i = favs.indexOf(variables.url);
+          const bare = (variables.url || '').replace(/^[a-z-]+:\/\//i, '');
+          const playing = entity?.state === 'playing' && bare && (entity.attributes.media_content_id || '').includes(bare);
+          const badge = i >= 0
+            ? `<span style="background:rgba(255,255,255,.25);border-radius:8px;padding:1px 6px;font-size:11px">♥ ${i + 1}</span>` : '';
+          return `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${badge}<span>${playing ? '🔊' : ''}</span></div>`;
+        ]]]
+    styles:
+      grid:
+        - grid-template-areas: '"logo n status"'
+        - grid-template-columns: 44px 1fr 40px
+        - column-gap: 12px
+      card:
+        - height: 64px
+        - background: |
+            [[[ return [1, 2, 3].some(n => states[`input_text.radio_fav_${n}`]?.state === variables.url)
+                  ? 'linear-gradient(135deg,#ff9800,#e65100)' : 'var(--secondary-background-color)'; ]]]
+        - color: |
+            [[[ return [1, 2, 3].some(n => states[`input_text.radio_fav_${n}`]?.state === variables.url)
+                  ? 'white' : 'var(--primary-text-color)'; ]]]
+      custom_fields:
+        logo:
+          - align-self: center
+        status:
+          - align-self: center
+
+# =====================================================================
+views:
+
+  # ===================== 1. PLAYER =====================
+  - title: Player
+    path: player
+    type: sections
+    max_columns: 2
+    icon: mdi:speaker
+    header:
+      layout: start
+      card: &header
+        type: vertical-stack
+        cards:
+          - type: horizontal-stack
+            cards:
+              - type: custom:button-card
+                template: nav_button
+                icon: mdi:speaker
+                variables:
+                  view: player
+              - type: custom:button-card
+                template: nav_button
+                icon: mdi:spotify
+                variables:
+                  view: spotify
+              - type: custom:button-card
+                template: nav_button
+                icon: mdi:radio
+                variables:
+                  view: radio
+          - type: custom:button-card
+            template: now_playing
+    sections:
+      # --- Left: player with artwork ---
+      - type: grid
+        column_span: 1
+        cards:
+          - type: custom:mini-media-player
+            entity: media_player.YOUR_SONOS   # <-- 2/2: change this too
+            artwork: full-cover
+            info: scroll
+            group: true
+            hide:
+              source: true
+              power: true
+              icon: true
+            grid_options:
+              columns: full
+
+      # --- Right: volume presets + Spotify and radio favorites ---
+      - type: grid
+        column_span: 1
+        cards:
+          - type: heading
+            heading: Volume
+            heading_style: subtitle
+            icon: mdi:volume-high
+          - type: horizontal-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:button-card
+                template: volume_button
+                name: Low
+                icon: mdi:volume-low
+                variables:
+                  level: 0.1
+              - type: custom:button-card
+                template: volume_button
+                name: Normal
+                icon: mdi:volume-medium
+                variables:
+                  level: 0.3
+                  lock_at_night: true
+                  lock_from: 23
+                  lock_until: 10
+              - type: custom:button-card
+                template: volume_button
+                name: Loud
+                icon: mdi:volume-high
+                variables:
+                  level: 0.7
+                  lock_at_night: true
+                  lock_from: 21
+                  lock_until: 10
+          - type: heading
+            heading: Spotify favorites
+            heading_style: subtitle
+            icon: mdi:spotify
+          - type: vertical-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:button-card
+                template: spotify_favorite
+                variables:
+                  slot: 1
+              - type: custom:button-card
+                template: spotify_favorite
+                variables:
+                  slot: 2
+              - type: custom:button-card
+                template: spotify_favorite
+                variables:
+                  slot: 3
+          - type: heading
+            heading: Radio favorites
+            heading_style: subtitle
+            icon: mdi:radio
+          - type: vertical-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:button-card
+                template: radio_favorite
+                variables:
+                  slot: 1
+              - type: custom:button-card
+                template: radio_favorite
+                variables:
+                  slot: 2
+              - type: custom:button-card
+                template: radio_favorite
+                variables:
+                  slot: 3
+
+  # ===================== 2. SPOTIFY LIBRARY =====================
+  # One section per "category" in media_library.json. Add or rename sections freely.
+  - title: Spotify
+    path: spotify
+    type: sections
+    max_columns: 3
+    icon: mdi:spotify
+    header:
+      layout: start
+      card: *header
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: My playlists
+            heading_style: title
+            icon: mdi:account-music
+          - type: custom:auto-entities
+            grid_options:
+              columns: full
+            card:
+              type: grid
+              columns: 1
+              square: false
+            card_param: cards
+            filter:
+              template: >
+                {% set items = state_attr('sensor.media_library','items') or [] %}
+                {% set ns = namespace(cards=[]) %}
+                {% for p in items | sort(attribute='name') if p.category | default('') == 'mine' %}
+                  {% set ns.cards = ns.cards + [{
+                    'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
+                    'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
+                {% endfor %}
+                {{ ns.cards | tojson }}
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Artists
+            heading_style: title
+            icon: mdi:microphone-variant
+          - type: custom:auto-entities
+            grid_options:
+              columns: full
+            card:
+              type: grid
+              columns: 1
+              square: false
+            card_param: cards
+            filter:
+              template: >
+                {% set items = state_attr('sensor.media_library','items') or [] %}
+                {% set ns = namespace(cards=[]) %}
+                {% for p in items | sort(attribute='name') if p.category | default('') == 'artists' %}
+                  {% set ns.cards = ns.cards + [{
+                    'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
+                    'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
+                {% endfor %}
+                {{ ns.cards | tojson }}
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Other playlists
+            heading_style: title
+            icon: mdi:playlist-music
+          - type: custom:auto-entities
+            grid_options:
+              columns: full
+            card:
+              type: grid
+              columns: 1
+              square: false
+            card_param: cards
+            filter:
+              template: >
+                {% set items = state_attr('sensor.media_library','items') or [] %}
+                {% set ns = namespace(cards=[]) %}
+                {% for p in items | sort(attribute='name') if p.category | default('') not in ['mine','artists'] %}
+                  {% set ns.cards = ns.cards + [{
+                    'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
+                    'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
+                {% endfor %}
+                {{ ns.cards | tojson }}
+
+  # ===================== 3. RADIO LIBRARY =====================
+  # One section per "group" in radio_stations.json.
+  - title: Radio
+    path: radio
+    type: sections
+    max_columns: 2
+    icon: mdi:radio
+    header:
+      layout: start
+      card: *header
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Local stations
+            heading_style: title
+            icon: mdi:radio-tower
+          - type: custom:auto-entities
+            grid_options:
+              columns: full
+            card:
+              type: grid
+              columns: 1
+              square: false
+            card_param: cards
+            filter:
+              template: >
+                {% set stations = state_attr('sensor.radio_stations','stations') or [] %}
+                {% set ns = namespace(cards=[]) %}
+                {% for s in stations | sort(attribute='name') if s.group | default('') == 'local' %}
+                  {% set ns.cards = ns.cards + [{
+                    'type': 'custom:button-card', 'template': 'radio_tile', 'name': s.name,
+                    'variables': {'url': s.url, 'title': s.name, 'logo': s.logo | default('')}}] %}
+                {% endfor %}
+                {{ ns.cards | tojson }}
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: International
+            heading_style: title
+            icon: mdi:earth
+          - type: custom:auto-entities
+            grid_options:
+              columns: full
+            card:
+              type: grid
+              columns: 1
+              square: false
+            card_param: cards
+            filter:
+              template: >
+                {% set stations = state_attr('sensor.radio_stations','stations') or [] %}
+                {% set ns = namespace(cards=[]) %}
+                {% for s in stations | sort(attribute='name') if s.group | default('') != 'local' %}
+                  {% set ns.cards = ns.cards + [{
+                    'type': 'custom:button-card', 'template': 'radio_tile', 'name': s.name,
+                    'variables': {'url': s.url, 'title': s.name, 'logo': s.logo | default('')}}] %}
+                {% endfor %}
+                {{ ns.cards | tojson }}
