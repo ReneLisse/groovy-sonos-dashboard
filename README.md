@@ -76,6 +76,8 @@ The navigation buttons work whatever you call your dashboard.
 | `category` | Which section it appears in: `mine`, `artists`, or anything else for "Other playlists" |
 | `img`      | Optional cover image URL. Leave empty to show the Spotify icon |
 
+Only items whose `url` contains `spotify` are shown, so the same file can hold other entries too.
+
 ### `www/sonos-dashboard/radio_stations.json`
 
 ```json
