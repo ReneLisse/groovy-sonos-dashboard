@@ -570,7 +570,7 @@ views:
               template: >
                 {% set items = state_attr('sensor.media_library','items') or [] %}
                 {% set ns = namespace(cards=[]) %}
-                {% for p in items | sort(attribute='name') if p.category | default('') == 'mine' %}
+                {% for p in items | sort(attribute='name') if 'spotify' in (p.url | default('')) and p.category | default('') == 'mine' %}
                   {% set ns.cards = ns.cards + [{
                     'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
                     'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
@@ -595,7 +595,7 @@ views:
               template: >
                 {% set items = state_attr('sensor.media_library','items') or [] %}
                 {% set ns = namespace(cards=[]) %}
-                {% for p in items | sort(attribute='name') if p.category | default('') == 'artists' %}
+                {% for p in items | sort(attribute='name') if 'spotify' in (p.url | default('')) and p.category | default('') == 'artists' %}
                   {% set ns.cards = ns.cards + [{
                     'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
                     'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
@@ -620,7 +620,7 @@ views:
               template: >
                 {% set items = state_attr('sensor.media_library','items') or [] %}
                 {% set ns = namespace(cards=[]) %}
-                {% for p in items | sort(attribute='name') if p.category | default('') not in ['mine','artists'] %}
+                {% for p in items | sort(attribute='name') if 'spotify' in (p.url | default('')) and p.category | default('') not in ['mine','artists'] %}
                   {% set ns.cards = ns.cards + [{
                     'type': 'custom:button-card', 'template': 'spotify_tile', 'name': p.name,
                     'variables': {'url': p.url, 'title': p.name, 'img': p.img | default('')}}] %}
