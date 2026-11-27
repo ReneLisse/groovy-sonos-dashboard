@@ -4,11 +4,11 @@ A clean, phone-friendly media dashboard for a Sonos speaker, with **Spotify play
 
 ![Player view](screenshots/player.png)
 
-<!-- Add more screenshots here, for example:
-![Spotify library](screenshots/spotify.png)
-![Radio library](screenshots/radio.png)
-![Phone](screenshots/phone.png)
--->
+| Spotify library | Radio library |
+|---|---|
+| ![Spotify library](screenshots/spotify.png) | ![Radio library](screenshots/radio.png) |
+
+<!-- Add a phone screenshot here later: ![Phone](screenshots/phone.png) -->
 
 ## Features
 
